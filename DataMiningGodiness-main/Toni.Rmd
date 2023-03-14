@@ -1,0 +1,344 @@
+---
+title: "Main"
+output:
+  pdf_document: default
+  html_document: default
+date: '2022-12-11'
+---
+
+```{r setup, include=FALSE, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+knitr::opts_chunk$set(echo = TRUE)
+library('corrplot')
+library('ggplot2')
+library('Hmisc')
+library('moments')
+library('dendextend')
+library('countrycode')
+library('ggthemes') # Load
+library('dplyr')
+library('tidyverse')
+library('cluster')
+library('factoextra')
+library('arules')
+```
+
+```{r}
+salaries= read.csv("AI_MLsalaries.csv")
+my_data <- salaries
+```
+
+```{r}
+#summarizing the data
+str(my_data)
+summary(my_data)
+```
+
+```{r}
+auxiliar <- my_data
+my_data[sapply(my_data, is.character)] <- data.matrix(my_data[sapply(my_data, is.character)])
+summary(my_data)
+plot(my_data$salary_in_usd)
+hist(my_data$salary_in_usd)
+```
+
+
+```{r}
+#removing outliers
+boxplot(my_data$salary_in_usd)
+quartiles1 <- quantile(my_data$salary_in_usd, probs=c(.01, .90), na.rm = FALSE)
+IQR <- IQR(my_data$salary_in_usd)
+ 
+Lower1 <- quartiles1[1] - 1.5*IQR
+Upper1 <- quartiles1[2] + 1.5*IQR
+ 
+data_no_outlier <- subset(my_data,my_data$salary_in_usd > Lower1 & my_data$salary_in_usd < Upper1)
+boxplot(data_no_outlier$salary_in_usd)
+hist(data_no_outlier$salary_in_usd)
+```
+
+
+```{r}
+plot(data_no_outlier$salary_in_usd)
+```
+
+```{r}
+salaTitle <-  data_no_outlier[, c(4, 5)]
+summary(salaTitle)
+plot(salaTitle)
+```
+
+
+
+```{r}
+summary(data_no_outlier$experience_level)
+summary(data_no_outlier$employee_residence)
+summary(data_no_outlier$employment_type)
+summary(data_no_outlier$company_size)
+summary(data_no_outlier$remote_ratio)
+summary(data_no_outlier$job_title)
+```
+
+plot de los salarios por experiencia diferenciado en años
+```{r}
+plot(data_no_outlier$company_size, data_no_outlier$salary_in_usd , col=data_no_outlier$company_size, xlab="company_size", ylab="salary" )
+```
+
+```{r}
+corrplot(cor(data_no_outlier), method = "color", type = "upper")
+```
+
+```{r}
+#reiniciar los datos
+data_no_outlier <- read.csv("AI_MLsalaries.csv",stringsAsFactors = TRUE)
+
+#removing outliers
+quartiles1 <- quantile(data_no_outlier$salary_in_usd, probs=c(.01, .90), na.rm = FALSE)
+IQR <- IQR(data_no_outlier$salary_in_usd)
+ 
+Lower1 <- quartiles1[1] - 1.5*IQR
+Upper1 <- quartiles1[2] + 1.5*IQR
+ 
+data_no_outlier <- subset(data_no_outlier,data_no_outlier$salary_in_usd > Lower1 & data_no_outlier$salary_in_usd < Upper1)
+
+#eliminating columns
+data_no_outlier["salary"] <- NULL
+data_no_outlier["employee_residence"] <- NULL
+data_no_outlier["salary_currency"] <- NULL
+
+#eliminating not FT
+head(data_no_outlier)
+data_no_outlier <- data_no_outlier[data_no_outlier$employment_type == "FT",]
+
+#remote_ratio as factor
+data_no_outlier["remote_ratio"] <- as.factor(data_no_outlier$remote_ratio)
+data_no_outlier["work_year"] <- as.factor(data_no_outlier$work_year)
+#NR -> no remote work, PR -> partially remote, FR -> fully remtote
+levels(data_no_outlier$remote_ratio) <- list(NR  = "0", PR = "50", FR = "100")
+
+#grouping by continents
+data_no_outlier$continent <- countrycode(sourcevar = data_no_outlier[, "company_location"],
+                            origin = "iso2c",
+                            destination = "continent")
+data_no_outlier$continent[data_no_outlier$company_location == "CA" | data_no_outlier$company_location == "US"] <- "North America"
+data_no_outlier$continent = as.factor(data_no_outlier$continent)
+
+#gruouping jobs (for clustering approach)
+data_no_outlier$job_title_grouped <- data_no_outlier$job_title
+data_no_outlier[grepl("BI", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "BI Analyst"
+data_no_outlier[grepl("Data Analy", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Analyst"
+data_no_outlier[grepl("Sci", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Scientist"
+data_no_outlier[grepl("Machine Learning", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "ML Engineer"
+data_no_outlier[grepl("Data Engi", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("NLP", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("Analytics", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("Research", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("ETL", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("Data Operations", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("Computer Vision", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "3D Computer Vision Researcher"
+data_no_outlier[grepl("Data Architect", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Architect"
+data_no_outlier[grepl("Head of", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Manager"
+data_no_outlier$job_title_grouped <- factor(data_no_outlier$job_title_grouped)
+summary(data_no_outlier$job_title_grouped)
+levels(data_no_outlier$job_title_grouped)
+
+#agrupar los precios por rangos
+data_no_outlier$quartile <- ntile(data_no_outlier$salary_in_usd, 3)
+data_no_outlier["quartile"] <- as.factor(data_no_outlier$quartile)
+levels(data_no_outlier$quartile) <- list(Low  = "1", Medium = "2", High = "3")
+
+str(data_no_outlier)
+head(data_no_outlier)
+```
+
+
+
+```{r}
+summary(data_no_outlier)
+summary(lm(formula = salary_in_usd ~ work_year + experience_level + job_title + remote_ratio + company_size + company_location, 
+           data = data_no_outlier))
+```
+
+#CLUSTERING
+
+##Manual Distance matrix
+```{r}
+# Creamos los vectores que formarÃ¡n la matriz de distancia (0 son iguales los trabajos, 1 son opuestos)
+Machine_Learning <- c(0.25,	0.5,	0.5,	0.4,	0.4,	0.85,	0.5,	0.5, 0)
+Data_Specialist <- c(0.75,	0.4,	0.3,	0.3,	0.3,	0.8,	0.15, 0, 0.5)
+Data_Scientist <- c(0.75,	0.3,	0.15,	0.25,	0.3,	0.8, 0, 0.15, 0.5)
+CPO <- c(0.9,	0.75,	0.75,	0.75,	0.8, 0, 0.8,0.8,0.85)
+Data_Engineer <- c(0.8,	0.4,	0.25,	0.1, 0,0.8,0.3,0.3,0.4)
+Data_Architect <- c(0.75,	0.4,	0.25, 0,0.1,0.75,0.25,0.3,0.4)
+Data_Analyst <- c(0.75,	0.3, 0,0.25,0.25,0.75,0.15,0.3,0.5)
+Business_Intelligence <- c(0.75, 0, 0.3,0.4,0.4,0.75,0.3,0.4,0.5)
+Computer_Vision <- c(0, 0.75,0.75,0.75,0.8,0.9,0.75,0.75,0.25)
+
+D <- c(Computer_Vision, Business_Intelligence, Data_Analyst, Data_Architect, Data_Engineer, CPO, Data_Scientist, Data_Specialist, Machine_Learning)
+
+My_Matrix <- matrix(D, byrow=TRUE, nrow=9)
+rownames(My_Matrix) <- c("Computer_Vision", "Business_Intelligence", "Data_Analyst", "Data_Architect", "Data_Engineer", "CPO", "Data_Scientist", "Data_Specialist", "Machine_Learning")
+colnames(My_Matrix) <- c("Computer_Vision", "Business_Intelligence", "Data_Analyst", "Data_Architect", "Data_Engineer", "CPO", "Data_Scientist", "Data_Specialist", "Machine_Learning")
+
+My_Matrix
+```
+
+##Plotted Distance Matrix
+```{r}
+Distance_Matrix <- as.dist(My_Matrix)
+
+mds.coor <- cmdscale(Distance_Matrix)
+plot(mds.coor[,2], mds.coor[,2], type="n", xlab="", ylab="")
+text(jitter(mds.coor[,1]), jitter(mds.coor[,2]), rownames(mds.coor), cex=0.8, col = c("#FF0000", "#0000FF", "#00FF00", "#FF00FF", "#FFFF00", "#00CCCC", "#000000", "#999999", "#9900FF", "#009966"))
+abline(h=0,v=0,col="gray75")
+```
+##Hierarchical Clustering using the Distance matrix of the Job Titles
+```{r}
+hc <- hclust(Distance_Matrix)
+dend <-set(as.dendrogram(hc), "branches_lwd", 4)
+d1=color_branches(dend,k=5, col = c(3,1,1,4,1))
+d2=color_branches(d1,k=5) # auto-coloring 5 clusters of branches.
+par(mar = c(9, 4, 4, 2) + 0.1)
+plot(d2, lwd=2)
+```
+
+##K-Means using Distance matrix of the Job Titles
+```{r}
+kmeans.re <- kmeans(Distance_Matrix, centers = 4, nstart = 20)
+
+fviz_cluster(kmeans.re, Distance_Matrix,
+             palette = c("#2E9FDF", "#00AFBB", "#E7B800", "#00FFFF"), 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+```
+##Association rules
+
+El objetivo de aplicar AR a el dataset es ver que caracteristicas son aquellas que
+estan mas relacionadas entre ellas, teniendo en cuenta la frecuencia de aparacion de cada una. 
+```{r}
+str(data_no_outlier)
+```
+Para ello , primero preparamos los datos que son necesarios pàra poder aplicar AR.
+Viendo las características, vemos que los datos que no nos interesan son "work_year" y "salary_in_usd", ya que el primero no aporta ninguna informacion, y la segunda es un valor continup que ya tenemos representado de forma categoria en salary. Además Se transforman las
+filas del df en transaccioes para poder aplicar las funciones de AR.
+```{r}
+#eliminamos time y valores enteros
+df <- data_no_outlier[,-c(1,5,7)]
+df2 <- as(df, "transactions")
+```
+
+
+```{r}
+inspect(df2[1:2,]) 
+class(df2)
+```
+
+Primeramente, queremos ver que items son los que mas se repiten en todo el dataset, teniendo en cuenta un support del 0.2 Más adelante veremos como no podremos trabajar con un support mayor a 0.3, ya que la cantidad de informacion del dataset es bastante escasa y no nos lo permiten, ya que el numero de reglas desciende considerablemente.
+```{r}
+itemFrequencyPlot(df2, support = 0.2) ## minimum support 0.1
+itemFrequencyPlot(df2, topN = 20, type="absolute", main="Top 20 Item Frequency")
+```
+
+
+Mediante la funcion eclat de la libreria "arules" calculamos los items mas frecuentes que tengan un support mayor del 0.2. El conjunto de items que nos da es de 103, un numero considerable para poder obtener reglas suficientes.
+```{r}
+frequentItems <- eclat(df2, parameter = list(support = 0.2)) # calculates support for frequent items
+inspect(frequentItems)
+```
+A primera vista, mirando el summary podemos ver que aquellos items con mayor fercuencia son "full time","North America","Senyor","Full remote" y "Medium".
+```{r}
+summary(frequentItems)
+```
+### #Making the Rules 
+
+A continuacion se procede a crear las reglas. Para ello, hemos creado todas las reglas posibles a partir de nuestros items mas frecuentes, con un confidence mayor a 0.45, ya que consideramos que es la medida correcta para este caso al no tener mucha informacion de entrada. Como podemos observar, una vez se eliminan las reglas redundantes el resultado es de 77 reglas en total.
+
+```{r}
+rulesf2 <- ruleInduction(frequentItems, confidence = .45)
+rules.pruned3 <- rulesf2[!is.redundant(rulesf2)]
+RL <- sort (rules.pruned3, by="support", decreasing=TRUE) 
+inspect(RL)
+```
+Una vez inspeccionadas todas ellas, aquellas que nos han llamado la atencion son todas las que implican la aparicion de "salary", ya que son las que mejor nos van a ayudar a entender aquellas caracteristicas que se relacionan mas con el "salary", tanto para bien como para mal. 
+
+Para tener aquellas en las que aparece "salary", agrupamos todas ellas en las que lhs = quartile. Y hacemos lo mismo con las que rhs=quartile. Para obtener el mayor numero de reglas en las que aparezca "salary", se ha bajado el support y el confidence.
+```{r}
+AR1 <- apriori(df2, 
+    parameter = list(minlen=2, support=0.1, confidence=0.15),
+    appearance = list(default="rhs", lhs=c("quartile=Low", "quartile=Medium","quartile=High")),
+    control = list(verbose=F))
+inspect(AR3)
+
+#-------------------------------------------------------------------------------------------------
+
+AR2 <- apriori(df2, 
+    parameter = list(minlen=2, support=0.1, confidence=0.15),
+    appearance = list(rhs=c("quartile=Low", "quartile=Medium","quartile=High"),default="lhs"),
+    control = list(verbose=F))
+inspect(AR4)
+```
+
+Para comprobar si se tienen reglas redundantes, se ordenan todas a partir del valor de lift tanto AR1 como AR2.
+```{r}
+AR_lift <- sort (AR1, by="lift", decreasing=TRUE) # 'high-confidence' rules.
+AR2_lift <- sort (AR2, by="lift", decreasing=TRUE) # 'high-confidence' rules.
+inspect(AR_lift)
+inspect(AR2_lift)
+```
+
+
+Una vez las tenemos ordenadas, hemos optado por comprobar la redundancia automaticamente mediante "is.redundant". En AR1 no se encuentra ninguna redundancia y por lo tanto nos quedamos con la misma cantidad de reglas.
+
+```{r}
+inspect(AR_lift[is.redundant(AR_lift)]) #no hay reglas redundantes
+```
+
+En cambio, en AR2 encontramos 16 reglas redundantes de 31, por lo tanto, guardamos las no reduantes.
+```{r}
+inspect(AR2_lift[is.redundant(AR2_lift)]) #no hay reglas redundantes
+rules.pruned2 <- AR2_lift[!is.redundant(AR2_lift)]
+inspect(rules.pruned2)
+```
+
+Por último, solo queda analizar las reglas y sacar conclusiones:
+Viendo las reglas de AR1 y de AR2, podemos concluir lo siguiente:
+
+  - Las personas que tienen un "salary" alto, suelen ser senyors, que trabajan "Full remote", en una compañía mediana de norte america,
+  a full time y que trabajan de Data scientists o Data engineer.
+  
+  - Las personas que tienen un "salary" medio, suelen ser senyors, que trabajan a full time en una
+  compañia mediana de norte america "full remote".
+  
+  - Las personas que tienen un "salary" bajo, suelen ser Mid-level, que trabajan a full time en una compañia grande 
+  o mediana de norte america o europa  "full remote". Destacar que la probabilidad de que sea en una empresa mediana es mayor que en una grande
+  
+  En conclusión, teniendo en cuenta tanto estas reglas como las generadas al principio del analisis  se puede decir lo siguiente: 
+  
+     - La mayoria de los trabajores del dataset trabajan en empresas medianas de norte america, independientemente de que tengan un salario alto, medio o bajo.
+     
+     - La mayoria trabaja a "Full time".
+     
+     - Las empresas que pagan menos son las empresas europeas.
+     
+     - Los senyors suelen tener un sueldo medio-alto.
+     
+     - Los "Data Engineer" y "Data Scientist"  suelen trabajar a "Full time".
+     
+     - La mayoria de los que trabajan "No remote" trabajan a "Full time".
+     
+     - La mayoria de los que trabajan "Full remote" trabajan a "Full time".
+     
+     - Mas del 50% son empresas medianas de norte-america.
+     
+     - En las empresas medianas se suelen trabajan a "Full time".
+     
+     - La mayoria de los que trabajan "Full remote" trabajan en empresas Americanas.
+     
+  
+  
+
+  
+  
+  
+  

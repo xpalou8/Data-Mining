@@ -1,0 +1,515 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+date: '2022-12-11'
+---
+
+## 1. Objectives / Research Questions:
+
+* Obtain groupings of different work environments or job titles.
+* Check if there are significant differences between the company size and it's location.
+* Create, train and test a model able to predict the salaries of determined data.
+  + Regression models
+  + Classification models
+* Transform salaries based on the cost index of each country
+
+## 2. Raw Data:
+
+The Dataset consists of 11 columns and 1332 rows of data. 
+
+These variables (columns) are: work_year, experience_level, employment_type,	job_title,	salary,	salary_currency,	salary_in_usd,	employee_residence,	remote_ratio,	company_location and	company_size. 
+
+From all these attributes, only salary and salary_in_usd contain continuous values, the rest of columns have categorical values.
+
+## 3. Data Analysis:
+
+JUANFRAN
+
+## 4. Data Preparation:
+
+
+```{r setup, include=FALSE, echo=FALSE, results='hide', message=FALSE, warning=FALSE, fig.show='hide'}
+knitr::opts_chunk$set(fig.width=6, fig.height=6) 
+library('corrplot')
+library('ggplot2')
+library('Hmisc')
+library('moments')
+library('dendextend')
+library('countrycode')
+library('ggthemes') # Load
+library('dplyr')
+library('tidyverse')
+library('cluster')
+library('factoextra')
+library('e1071')
+library('caret')
+library('nnet')
+library('randomForest')
+library('DAAG')
+library('party')
+library('rpart')
+library('rpart.plot')
+library('mlbench')
+library('pROC')
+library('tree')
+library('knitr')
+library('gridExtra')
+library('arules')
+library('crayon')
+```
+
+```{r echo=FALSE}
+salaries= read.csv("AI_MLsalaries.csv")
+my_data <- salaries
+```
+
+```{r echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+#summarizing the data
+str(my_data)
+summary(my_data)
+```
+
+```{r, echo=FALSE}
+auxiliar <- my_data
+my_data[sapply(my_data, is.character)] <- data.matrix(my_data[sapply(my_data, is.character)])
+```
+
+
+```{r, echo=FALSE}
+#removing outliers
+quartiles1 <- quantile(my_data$salary_in_usd, probs=c(.01, .90), na.rm = FALSE)
+IQR <- IQR(my_data$salary_in_usd)
+ 
+Lower1 <- quartiles1[1] - 1.5*IQR
+Upper1 <- quartiles1[2] + 1.5*IQR
+ 
+data_no_outlier <- subset(my_data,my_data$salary_in_usd > Lower1 & my_data$salary_in_usd < Upper1)
+```
+
+```{r, echo=FALSE, fig.show="hold", out.width="30%", fig.width=5, fig.height=5, fig.align='center'}
+hist(my_data$salary_in_usd)
+hist(data_no_outlier$salary_in_usd)
+corrplot(cor(data_no_outlier), method = "color", type = "upper")
+```
+
+```{r, echo=FALSE}
+#reiniciar los datos
+data_no_outlier <- read.csv("AI_MLsalaries.csv",stringsAsFactors = TRUE)
+#removing outliers
+quartiles1 <- quantile(data_no_outlier$salary_in_usd, probs=c(.01, .90), na.rm = FALSE)
+IQR <- IQR(data_no_outlier$salary_in_usd)
+ 
+Lower1 <- quartiles1[1] - 1.5*IQR
+Upper1 <- quartiles1[2] + 1.5*IQR
+ 
+data_no_outlier <- subset(data_no_outlier,data_no_outlier$salary_in_usd > Lower1 & data_no_outlier$salary_in_usd < Upper1)
+#eliminating columns
+data_no_outlier["salary"] <- NULL
+data_no_outlier["employee_residence"] <- NULL
+data_no_outlier["salary_currency"] <- NULL
+#eliminating not FT
+data_no_outlier <- data_no_outlier[data_no_outlier$employment_type == "FT",]
+#remote_ratio as factor
+data_no_outlier["remote_ratio"] <- as.factor(data_no_outlier$remote_ratio)
+data_no_outlier["work_year"] <- as.factor(data_no_outlier$work_year)
+#NR -> no remote work, PR -> partially remote, FR -> fully remtote
+levels(data_no_outlier$remote_ratio) <- list(NR  = "0", PR = "50", FR = "100")
+#grouping by continents
+data_no_outlier$continent <- countrycode(sourcevar = data_no_outlier[, "company_location"],
+                            origin = "iso2c",
+                            destination = "continent")
+data_no_outlier$continent[data_no_outlier$company_location == "CA" | data_no_outlier$company_location == "US"] <- "North America"
+data_no_outlier$continent = as.factor(data_no_outlier$continent)
+#gruouping jobs (for clustering approach)
+data_no_outlier$job_title_grouped <- data_no_outlier$job_title
+data_no_outlier[grepl("BI", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "BI Analyst"
+data_no_outlier[grepl("Data Analy", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Analyst"
+data_no_outlier[grepl("Sci", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Scientist"
+data_no_outlier[grepl("Machine Learning", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "ML Engineer"
+data_no_outlier[grepl("Data Engi", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("NLP", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("Analytics", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("Research", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("ETL", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("Data Operations", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Engineer"
+data_no_outlier[grepl("Computer Vision", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "3D Computer Vision Researcher"
+data_no_outlier[grepl("Data Architect", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Architect"
+data_no_outlier[grepl("Head of", data_no_outlier$job_title_grouped, fixed=TRUE),]$job_title_grouped <- "Data Manager"
+data_no_outlier$job_title_grouped <- factor(data_no_outlier$job_title_grouped)
+#Grouping salary by range
+data_no_outlier["quartile"] <- cut(data_no_outlier$salary_in_usd, breaks=c(0, 85000,140000, Inf), labels=paste("Salary", 1:3, sep=""))
+```
+
+
+\newpage
+## DESCRIPTIVE MODELS: Clustering
+
+Clustering will be applied for us to be able to have a better understanding of our Dataset regarding the Job Titles and their differences. In other words, we want to obtain groupings of different work environments so we can draw conclusions from them. **Manual Distance matrix:** First of all, for us to be able to apply clustering techniques to our Job Titles, we need to create a Distance Matrix which will be used as an input in the clustering methods. To generate this Distance Matrix, we have had to investigate and do some research to deeply understand what these Job Titles consist of so we can actually know how similar they are one to another. Once we have done this first step, we have created a distance scale in which the value 0 represents total similarity between 2 Job Titles (therefore, their distance will be 0) and the value 1 represents that 2 Job Titles are completely opposite. So, with this distance scale and the research done previously, the Distance Matrix generated is the following:
+
+Note that: **CV** = "Computer Vision", **BI** = "Business Intelligence", **DAn** = "Data Analyst", **DAr** = "Data Architect", **DE** = "Data Engineer", **CPO** = "Chief Product Officer", **DSc** = "Data Scientist", **DSp** = "Data Specialist", **ML** = "Machine Learning"
+
+```{r, echo=FALSE, out.width="100%", fig.width=5, fig.height=5}
+# Create matrix vectors (0 is equal jobs, 1 is opposite jobs)
+Machine_Learning <- c(0.25,	0.5,	0.5,	0.4,	0.4,	0.85,	0.5,	0.5, 0)
+Data_Specialist <- c(0.75,	0.4,	0.3,	0.3,	0.3,	0.8,	0.15, 0, 0.5)
+Data_Scientist <- c(0.75,	0.3,	0.15,	0.25,	0.3,	0.8, 0, 0.15, 0.5)
+CPO <- c(0.9,	0.75,	0.75,	0.75,	0.8, 0, 0.8,0.8,0.85)
+Data_Engineer <- c(0.8,	0.4,	0.25,	0.1, 0,0.8,0.3,0.3,0.4)
+Data_Architect <- c(0.75,	0.4,	0.25, 0,0.1,0.75,0.25,0.3,0.4)
+Data_Analyst <- c(0.75,	0.3, 0,0.25,0.25,0.75,0.15,0.3,0.5)
+Business_Intelligence <- c(0.75, 0, 0.3,0.4,0.4,0.75,0.3,0.4,0.5)
+Computer_Vision <- c(0, 0.75,0.75,0.75,0.8,0.9,0.75,0.75,0.25)
+D <- c(Computer_Vision, Business_Intelligence, Data_Analyst, Data_Architect, Data_Engineer, CPO, Data_Scientist, Data_Specialist, Machine_Learning)
+My_Matrix <- matrix(D, byrow=TRUE, nrow=9)
+rownames(My_Matrix) <- c("CV", "BI", "DAn", "DAr", "DE", "CPO", "DSc", "DSp", "ML")
+colnames(My_Matrix) <- c("CV", "BI", "DAn", "DAr", "DE", "CPO", "DSc", "DSp", "ML")
+kable(My_Matrix)
+Distance_Matrix <- as.dist(My_Matrix)
+#mds.coor <- cmdscale(Distance_Matrix)
+#plot(mds.coor[,2], mds.coor[,2], type="n", xlab="", ylab="")
+#text(jitter(mds.coor[,1]), jitter(mds.coor[,2]), rownames(mds.coor), cex=2, col = c("#FF0000", "#0000FF", "#00FF00", "#FF00FF", "#FFFF00", "#00CCCC", "#000000", "#999999", #"#9900FF", "#009966"))
+#abline(h=0,v=0,col="gray75")
+```
+
+
+**Hierarchical Clustering and K-Means:** With the Hierarchical clustering method, we are able to visualize the clusters formed by the 2 closest Job Titles in each iteration.
+
+Finally, to assure that the clustering results are correct, we use the K-Means method so we have 2 clustering techniques that most likely produce the same result.
+
+
+```{r echo=FALSE, figures-side, fig.show="hold", out.width="40%", fig.width=5, fig.height=5, fig.align='center'}
+hc <- hclust(Distance_Matrix)
+dend <-set(as.dendrogram(hc), "branches_lwd", 4)
+d1=color_branches(dend,k=5, col = c(3,1,1,4,1))
+d2=color_branches(d1,k=5) # auto-coloring 5 clusters of branches.
+par(mar = c(9, 4, 4, 2) + 0.1)
+plot(d2, lwd=2)
+kmeans.re <- kmeans(Distance_Matrix, centers = 4, nstart = 20)
+fviz_cluster(kmeans.re, Distance_Matrix,
+             palette = c("#2E9FDF", "#00AFBB", "#E7B800", "#00FFFF"), 
+             geom = "point",
+             ellipse.type = "convex", 
+             ggtheme = theme_bw()
+             )
+```
+
+Once the K-Means algorithm has finished, this plot shows us the the results are: Cluster 1: "CV", Cluster 2: "ML", Cluster3: ""BI", "DAn", "DAr", "DE", "DSc", "DSp" and Cluster4: "CPO".
+
+\newpage
+## DESCRIPTIVE MODELS: Association rules
+
+The objective of applying AR to the dataset is to see which characteristics are 
+most related to each other, taking into account the frequency of appearance of each one.
+
+```{r echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+str(data_no_outlier)
+```
+
+To do this, we first prepare the data that is necessary to be able to apply AR.
+Looking at the characteristics, we see that the data that we are not interested in are "work_year" and "salary_in_usd", since the first does not provide any information, and the second is a continuous value that we already have represented as a category in salary feature. In addition, the rows of the df are transformed into transactions to be able to apply the AR functions.
+```{r echo=FALSE}
+#eliminamos time y valores enteros
+df <- data_no_outlier[,-c(1,5,7)]
+df2 <- as(df, "transactions")
+```
+
+
+```{r echo=FALSE}
+#inspect(head(df2[1:1,]))
+#class(df2)
+```
+
+Firstly, we want to see which items are the most frequent in the entire Dataset,
+taking into account a support of 0.2. Later we will see how we will not be able
+to work with a support greater than 0.3, since the amount of information in the
+Dataset is quite scarce and They do not allow us and the number of rules decreases considerably.
+```{r echo=FALSE, out.width="100%", fig.width=6, fig.height=4, fig.align='center'}
+itemFrequencyPlot(df2, topN = 20, type="absolute", main="Top 20 Item Frequency", cex=0.8)
+```
+
+
+Using the eclat function from the "arules" library, we calculate the most frequent 
+items that have a support greater than 0.2. The set of items that it gives us is 101,
+that is a considerable number to be able to obtain the necessary rules.
+```{r echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+frequentItems <- eclat(df2, parameter = list(support = 0.2)) # calculates support for frequent items
+```
+
+```{r echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+RLaux <- sort (frequentItems, by="support", decreasing=TRUE) 
+kableAux <-inspect(head(RLaux[1:3,]))
+```
+
+```{r echo=FALSE}
+kable(kableAux)
+```
+
+At first glance, looking at the summary we can see that the items with the 
+highest frequency are "full time","North America","Senyor","Full remote" and "Medium".
+```{r echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+summary(frequentItems)
+```
+### Making the Rules 
+
+Next we proceed to create the rules. To do it, we have created all the possible
+rules from our most frequent items, with a confidence greater than 0.45, since we 
+consider that it is the correct measure for this case since we do not have much 
+input information. As we can see, once the redundant rules are eliminated, 
+the result is 77 rules in total.
+
+```{r echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+rulesf2 <- ruleInduction(frequentItems, confidence = .45)
+rules.pruned3 <- rulesf2[!is.redundant(rulesf2)]
+RL <- sort (rules.pruned3, by="support", decreasing=TRUE) 
+kableAux <-inspect(head(RL[1:3,]))
+```
+
+```{r echo=FALSE}
+kable(kableAux)
+```
+
+Once all of them have been inspected, those that have called our attention are 
+all those that involve the appearance of "salary", since they are the ones that
+will best help us understand those characteristics that are more related to "salary",
+whether good or bad.  
+
+To have those in which "salary" appears, we group all of them in which lhs = quartile.
+Next, We do the same with those where rhs=quartile. To get the most rules where "salary"
+appeared, support and trust have been lowered.
+```{r echo=FALSE}
+AR1 <- apriori(df2, 
+    parameter = list(minlen=2, support=0.1, confidence=0.15),
+    appearance = list(default="rhs", lhs=c("quartile=Salary1", "quartile=Salary2","quartile=Salary3")),
+    control = list(verbose=F))
+#inspect(head(AR1[1:2,]))
+#-------------------------------------------------------------------------------------------------
+AR2 <- apriori(df2, 
+    parameter = list(minlen=2, support=0.1, confidence=0.15),
+    appearance = list(rhs=c("quartile=Salary1", "quartile=Salary2","quartile=Salary3"),default="lhs"),
+    control = list(verbose=F))
+#inspect(head(AR2[1:2,]))
+```
+
+To check if there are redundant rules, all are ordered based on the elevator value, both AR1 and AR2.
+```{r echo=FALSE}
+AR_lift <- sort (AR1, by="lift", decreasing=TRUE) # 'high-confidence' rules.
+AR2_lift <- sort (AR2, by="lift", decreasing=TRUE) # 'high-confidence' rules.
+#inspect(head(AR_lift[1:2,]))
+#inspect(head(AR2_lift[1:2,]))
+```
+
+
+Once we have them ordered, we have chosen to check the redundancy automatically
+using "is.redundant". We have verified that in AR1 there is no redundancy and
+therefore we are left with the same number of rules.
+
+```{r echo=FALSE}
+inspect(AR_lift[is.redundant(AR_lift)]) #There are no redundant rules
+```
+
+Instead, in AR2 we find 16 redundant rules out of 31, therefore, we keep the non-redundant ones.
+```{r echo=FALSE}
+#inspect(AR2_lift[is.redundant(AR2_lift)]) 
+rules.pruned2 <- AR2_lift[!is.redundant(AR2_lift)]
+```
+
+```{r echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+kableAux1 <-inspect(head(AR_lift[1:2,]))
+kableAux2 <-inspect(head(rules.pruned2[1:2,]))
+```
+
+```{r echo=FALSE}
+kable(kableAux1)
+kable(kableAux2)
+```
+
+
+Finally, it only remains to analyze the rules and draw conclusions:
+Looking at the rules of AR1 and AR2, we can conclude the following:
+
+   - People who have a high "salary" are usually seniors, who work "Full remote", in a medium-sized company in North America,
+   full time and who work as Data scientists or Data engineers.
+  
+   - People who have an average "salary" are usually seniors, who work full time in a
+   medium-sized North American company "full remote".
+  
+   - People who have a low "salary" are usually Mid-level, who work full time in a large company
+   or median North America or Europe "full remote". Note that the probability of it being in a medium-sized company is greater than in a large one
+  
+  
+#### Association Rules conclusions:
+
+ In conclusion, taking into account both these rules and those generated at the beginning of the analysis, the following can be said: 1. Most of the workers in the Dataset work in medium-sized companies in North America, regardless of whether they have a high, medium or low salary, 2. Most work "Full time", either "Full remote" or "No remote", 3. The companies that pay less are the European companies, 4. Seniors usually have a medium-high salary, 5. More than 50% are medium-sized companies from North America, 6. In medium-sized companies they usually work "Full time", 7. Most of those who work "Full remote" work in American companies.
+
+\newpage
+## PREDICTIVE MODELS: Machine Learning Models
+### Linear model
+At first we will try using a linear model to predict the salary in usd, and as we observed, it fits better by transforming this variable with log function. We are using work year, experience level, job title, company size and company location to fit the model and predict the results, because as we saw previously, these are the most correlated columns with the salary_in_usd variable.
+```{r echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+LMmodel <-lm(formula = log(salary_in_usd) ~ experience_level + job_title + company_size + company_location, 
+           data = data_no_outlier)
+text1 <- "Multiple R Squared:"
+t2 <- summary(LMmodel)$r.squared
+text2 <- "Adjusted R Squared:"
+t4 <- summary(LMmodel)$adj.r.squared
+cat1 <-capture.output(cat(text1,t2))
+cat2 <-capture.output(cat(text2,t4))
+```
+
+```{r echo=FALSE,  comment=NA, results = 'asis'}
+#Printing the results
+cat(cat1)
+```
+    
+```{r echo=FALSE,  comment=NA, results = 'asis'}
+cat(cat2)
+```
+
+### Naive Bayes & Random Forest
+It worked pretty well, but we will try to get this problem to a classification one by trying to predict in which quartile a worker should be. At first we are creating a Naive Bayes and a Random Forest classifiers. We will use Naive Bayes because it is a really confident classification model and we think it should perform pretty well, and Random Forest because it is one of the best models in terms of accuracy.
+
+```{r echo=FALSE}
+set.seed(123)
+data_no_outlier2 <- data_no_outlier[,!names(data_no_outlier) %in% c("salary_in_usd")]
+trainIndex=createDataPartition(data_no_outlier2$quartile, p=0.7)$Resample1
+train=data_no_outlier2[trainIndex, ]
+test=data_no_outlier2[-trainIndex, ]
+NBclassfier=naiveBayes(quartile~., data=train)
+rf = randomForest(quartile~.- job_title - company_location - employment_type, data=train, proximity=TRUE)
+```
+
+```{r, echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+printALL=function(model){
+  trainPred=predict(model, newdata = train, type = "class")
+  trainTable=table(train$quartile, trainPred)
+  testPred=predict(model, newdata=test, type="class")
+  testTable=table(test$quartile, testPred)
+  trainAcc=(trainTable[1,1]+trainTable[2,2]+trainTable[3,3])/sum(trainTable)
+  testAcc=(testTable[1,1]+testTable[2,2]+testTable[3,3])/sum(testTable)
+  cm <- confusionMatrix(testPred, test$quartile, mode="prec_recall")
+  #print(cm$table)
+  precision <- diag(cm$table) / rowSums(cm$table)
+  recall <- diag(cm$table) / colSums(cm$table)
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  #cat(precision, "\t", recall, "\t", f1_score)
+  message("Accuracy")
+  print(round(cbind(trainAccuracy=trainAcc, testAccuracy=testAcc),4))
+}
+t1 <-printALL(NBclassfier)
+t2 <-printALL(rf)
+```
+
+              Models:           Naive Bayes                       Random Forest
+```{r echo=FALSE,  comment=NA, results = 'asis'}
+#Printing the results
+Salary1 <- c(83, 27, 8, 83, 26, 9)
+Salary2 <- c(20, 49, 15, 22, 49, 16)
+Salary3 <- c(15, 45, 126, 13, 46, 124)
+Precision <- c(0.7033898, 0.5833333, 0.6774194, 0.7033898, 0.5632184, 0.6775956)
+Recall <- c(0.7033898, 0.4049587, 0.8456376, 0.7033898, 0.4049587, 0.8322148)
+f1_Score <- c(0.7033898, 0.4780488, 0.7522388, 0.7033898, 0.4711538, 0.746988)
+
+D <- c(Salary1, Salary2, Salary3, Precision, Recall, f1_Score)
+My_Naive <- matrix(D, byrow=TRUE, nrow=6)
+rownames(My_Naive) <- c("Salary1", "Salary2", "Salary3", "Precision", "Recall", "f1_Score")
+colnames(My_Naive) <- c("Salary1", "Salary2", "Salary3", "Salary1", "Salary2", "Salary3")
+
+Naive_Bayes <- c(0.667, 0.6649)
+Random_Forest <- c(0.7297, 0.6598)
+D <- c(Naive_Bayes, Random_Forest)
+My_Results <- matrix(D, byrow=TRUE, nrow=2)
+rownames(My_Results) <- c("Naive Bayes", "Random Forest")
+colnames(My_Results) <- c("Train Accuracy", "Test Accuracy")
+
+kable(My_Naive)
+kable(My_Results)
+```
+
+As we can see, we have obtained good results on our testing predictions, not as good as the linear model, but still higher than 65%, so that means out model can classificate roughly 2/3 of the samples correctly.
+
+### Logistic regression
+
+Get the dataset with "quartile" column as a binary class column, by creating different datasets with the same data. The dataset will be splitted into the 3 quartiles, and a linear regression will be obtained for each one. Once we have all three models built, we can predict the quartile where an input belongs to comparing all probabilities.
+```{r, echo=FALSE}
+LowQuartileDS <- train[,!names(train) %in% c("employment_type")]
+LowQuartileDS$quartile2[LowQuartileDS$quartile == "Salary1"] <- 1
+LowQuartileDS$quartile2[LowQuartileDS$quartile != "Salary1"] <- 0
+LowQuartileDS <- LowQuartileDS[,!names(LowQuartileDS) %in% c("quartile", "job_title", "company_location")]
+MLQuartileDS <- train[,!names(train) %in% c("employment_type")]
+MLQuartileDS$quartile2[MLQuartileDS$quartile == "Salary2"] <- 1
+MLQuartileDS$quartile2[MLQuartileDS$quartile != "Salary2"] <- 0
+MLQuartileDS <- MLQuartileDS[,!names(MLQuartileDS) %in% c("quartile", "job_title", "company_location")]
+MHQuartileDS <- train[,!names(train) %in% c("employment_type")]
+MHQuartileDS$quartile2[MHQuartileDS$quartile == "Salary3"] <- 1
+MHQuartileDS$quartile2[MHQuartileDS$quartile != "Salary3"] <- 0
+MHQuartileDS <- MHQuartileDS[,!names(MHQuartileDS) %in% c("quartile", "job_title", "company_location")]
+```
+
+Use a logistic regression for each of the dataset that were just generated, so we can iterate over the test set and get the model it fits best. An algorithm to calculate the accuracy of the three models has been designed as follows:
+Each row of the test set is used to predict the quartile of every model, and the one which gives the highest probability of a true prediction is considered from its salary category. Then we check if actually this last prediction belongs to its quartile and we add it to a true predictions counter. After all test rows have been filtered, we can calculate the accuracy of the models dividing the true predictions by the number of test rows.
+The accuracy obtained is:
+```{r, echo=FALSE,  comment=NA, results = 'asis'}
+LowModel <- glm(quartile2~., data = LowQuartileDS)
+MLModel <- glm(quartile2~., data = MLQuartileDS)
+MHModel <- glm(quartile2~., data = MHQuartileDS)
+truePredictions = 0
+for(i in 1:nrow(test)) {       # for-loop over rows
+  testRow <- test[i, ]
+  
+  predictLow <- predict(LowModel, testRow, type = "response")
+  predictML <- predict(MLModel, testRow, type = "response")
+  predictMH <- predict(MHModel, testRow, type = "response")
+  
+  max = 0
+  labels = c("Salary1", "Salary2", "Salary3")
+  indice = 0
+  predicciones = c(predictLow, predictML, predictMH)
+  for(i in 1:3) {
+    if(predicciones[i] > max) {
+      max = predicciones[i]
+      indice = i
+    }
+  }
+  if(labels[indice] == testRow$quartile) {
+    truePredictions = truePredictions + 1
+  }
+}
+
+t2 <- truePredictions/nrow(test)
+cat1 <-capture.output(cat(t2))
+cat(cat1)
+```
+
+From this index we can conclude that with a certainty of a 66% we will get a true prediction of salary category with these models. We know that the algorithm designed is very reliable because we tried out building the models with an included r package and it gave us a 5% lower accuracy. We also tried to rise the number of quartiles to 4 for more precision, but its loss in accuracy was too penalizing.
+The following logistic regression builds a tiny neuronal network with the nnet package. This package gives a true output for the best option of salary like our models. The NNet Accuracy obtained is: 0.6185567
+```{r, echo=FALSE, include=FALSE, echo=FALSE, results = FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+# Fit the model
+NNModel <- multinom(quartile ~., data = train)
+# Make predictions
+prediccion <- NNModel %>% predict(test)
+# Model accuracy
+
+t2 <- mean(prediccion == test$quartile)
+cat1 <-capture.output(cat(t2))
+cat(cat1)
+```
+
+### Decision tree
+
+A decision tree has been built to check how it performs by classifying our data in the 3 different salary_in_usd quartiles.
+It has been first done excluding the salary_in_usd in the train dataset, company_location and job_title because they have too many different categories to classify and build the tree, which leads to an unending execution of the rpart library. Now, we still have the columns continent and job_title_grouped, which respectively are more useful to classify with more accuracy without overfitting, and gaining simplicity in the final tree. This also explains that the tree is binary, as it is the most common solution given in actual algorithms.
+'rpart' uses CART which applies Gini Index to order the partitions. This type of algorithm is very useful in our dataset because our partitions in salaries are equally sized and we don't provide a lot of classes to the tree, as they have been grouped.
+
+```{r, echo=FALSE, out.width="100%", fig.width=7, fig.height=3, fig.align='center'}
+tree <- rpart(quartile ~.- company_location - job_title, data = train)
+rpart.plot(tree)
+#printALL(tree, "DecisionTree")
+```
+
+Each node has three rows with the following information: 1. The first row gives the quartile with the highest probability to form part of in that node, 2. The second row are the probabilities of a prediction to belong to each quartile, 3. The third row describes the flow direction of the input data in the tree, from the root node to the leaf node.
+
+Once defined the tree values, we can conclude that the continent is the most important predictor to split the data. The first split separates North America from the rest of the continents. That may happen because of the dominance of data provided from that "continent". This is supported by a probability of 79%, and in cases like Europe which is dragged to the left node, we maybe won't find that many cases of a low salary. Overall, the accuracy is at 0.67, which means that the tree is not randomly generated, but fails pretty often and explains some of these biased categories. As we go down though the nodes, we can see that when a worker has an entry-level experience or mid-level, they will be only classified into low or mid salary, which makes a lot of sense.
+From the higher levels of experience, we can distinguish one only job that is never getting a high salary; Data Analyst.
+The remaining levels of job_title_grouped not showed in the tree are: Data Architect, Data Manager, Data Scientist, Data Specialist and ML Engineer. 
+We can see that not all the attributes are included in the tree. That may be because the left attributes have not enough impact on the outcome, or they a high correlation with other predictors.
